@@ -11,14 +11,16 @@ from todo_model import get_user_id_by_ip, create_user_with_ip
 from db_service import handle_database_interaction
 from config import OPENAI_API_KEY
 
-#Visual Foundation Services
+
 # Create the 'image' folder if it doesn't exist
 os.makedirs('image', exist_ok=True)
 
-# Load the models
+# Load the visual Foundations models
 device = "cuda" if torch.cuda.is_available() else "cpu"
 image_captioning = ImageCaptioning(device=device)
 visual_question_answering = VisualQuestionAnswering(device=device)
+object_detection = ObjectDetection(device=device)
+zeroshot_object_detection = ZeroShotObjectDetection(device=device)
 ocr = Ocr()
 
 

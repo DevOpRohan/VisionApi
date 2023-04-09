@@ -33,6 +33,19 @@ async def create_tables():
             print("Tables created successfully.")
 
 
+async def delete_tables():
+    with conn:
+        with conn.cursor() as cur:
+            cur.execute('''
+                DROP TABLE IF EXISTS todo;
+            ''')
+
+            cur.execute('''
+                DROP TABLE IF EXISTS users;
+            ''')
+
+            print("Tables deleted successfully.")
+
 async def execute_query(query, params=None):
     with conn:
         with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:

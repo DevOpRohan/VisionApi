@@ -1,15 +1,15 @@
-import json
 import os
 import requests
 from PIL import Image
 import torch
+import concurrent.futures
+import json
 import numpy as np
 
+from langchain.chat_models import ChatOpenAI
 from fastapi import HTTPException
-from transformers import BlipProcessor, BlipForConditionalGeneration, BlipForQuestionAnswering
+from transformers import BlipProcessor, BlipForConditionalGeneration, BlipForQuestionAnswering, pipeline
 from config import OCR_API_KEY
-
-import requests
 
 
 class Language:
@@ -152,6 +152,41 @@ class VisualQuestionAnswering:
         return answer
 
 
+""" Object Detection """
+
+
+class ObjectDetection:
+    def __init__(self, device):
+        if 'cuda' in device:
+            self.device = 0
+        else:
+            self.device = -1
+
+        self.model = pipeline(model="facebook/detr-resnet-50", device=self.device)
+
+    def inference(self, image_path, threshold=0.7):
+        image = Image.open(image_path)
+        outputs = self.model(image, threshold=threshold)
+        return outputs
+
+
+
+
+class ZeroShotObjectDetection:
+    def __init__(self, device):
+        if 'cuda' in device:
+            self.device = 0
+        else:
+            self.device = -1
+
+        self.model = pipeline(model="google/owlvit-base-patch32", task="zero-shot-object-detection", device=self.device)
+
+    def inference(self, image_path, candidate_labels):
+        image = Image.open(image_path)
+        outputs = self.model(image, candidate_labels=candidate_labels)
+        return outputs
+
+
 """ Images Utility """
 
 
@@ -188,3 +223,188 @@ def download_image(image_url, user_id):
         return image_path
     else:
         raise HTTPException(status_code=400, detail="Image download failed")
+
+
+# == PROMPT MANAGER ==
+
+from langchain.prompts import (
+    ChatPromptTemplate,
+    SystemMessagePromptTemplate,
+    HumanMessagePromptTemplate,
+)
+from langchain.schema import (
+    AIMessage,
+    HumanMessage,
+    SystemMessage
+)
+
+
+class PromptManager:
+    def __init__(self):
+        self.templates = self._initialize_templates()
+
+    def _initialize_templates(self):
+        templates = {}
+
+        # System role template
+        system_role_template = SystemMessagePromptTemplate.from_template(
+            "You are vision an AI system to give the response of the below visual query using various tools.\n"
+            "Query:\n```\n{query}\n```\n"
+            "You have access to the following tools.\n"
+            "[\n\n**ZeroShotObjectDetection**\n"
+            "Give an array of labels in specified format as input to this to get to know whether these  are present or  not.\n"
+            "Format example\n```\n@ZeroShotObjectDetection:[\"chair\", \"table\", \"glass\"]\n```\n],\n"
+            "[\n**VisualQuestionAnswering**\n"
+            "Ask simple independent visual questions about image  in the below format to get more details.\n"
+            "Format Example\n```\n@VisualQuestionAnswering:[<ques1>,<ques2>,<ques3>]\n```\n\n"
+            "Rules\nAtmax no. of ques should be {maxVqQues}\n"
+            "Question shouldn't be  about getting text/labels.\n]\n\n"
+            "Follow the user's instruction carefully and  always respond in proper format."
+        )
+        templates["system_role"] = system_role_template
+
+        # User's 1st message template
+        user_first_message_template = HumanMessagePromptTemplate.from_template(
+            "Input from  other tools:\n"
+            "ObjectDetection:\n```\n{ObjectDetectionOutput}\n```\n"
+            "ImageCaptioning:\n```\n{ImageCaptioningOutput}\n```\n"
+            "TextDetected:\n```\n{OcrOutput}\n```\n\n"
+            "Now, if information provided by me is enough, then respond with a answer in format\n"
+            "@ans:<answer>\nelse,tell me use which one of the two tool, and wait for my response in the specified format.\n"
+            "@<toolKeyword>:<input>"
+        )
+        templates["user_first_message"] = user_first_message_template
+
+        # User's 2nd message template
+        user_second_message_template = HumanMessagePromptTemplate.from_template(
+            "Output: {IntermdiateOutput}\n"
+            "Now,if you want to use  VisualQuestionAnswering, the respond me in proper format else conclude the answer."
+        )
+        templates["user_second_message"] = user_second_message_template
+
+        # User's 3rd message template
+        user_third_message_template = HumanMessagePromptTemplate.from_template(
+            "Output: {IntemediateOutput}\n"
+            "Now, conclude  the answer"
+        )
+        templates["user_third_message"] = user_third_message_template
+
+        return templates
+
+    def format_template(self, template_name, **kwargs):
+        template = self.templates.get(template_name)
+        if template:
+            return template.format_prompt(**kwargs).to_messages()
+        else:
+            raise ValueError(f"Template '{template_name}' not found in the PromptManager.")
+
+
+class Chat:
+    def __init__(self):
+        self.prompt_manager = PromptManager()
+        self.conversation = []
+
+    def add_system_message(self, template_name, **kwargs):
+        messages = self.prompt_manager.format_template(template_name, **kwargs)
+        self.conversation.extend(messages)
+
+    def add_human_message(self, template_name, **kwargs):
+        messages = self.prompt_manager.format_template(template_name, **kwargs)
+        self.conversation.extend(messages)
+
+    def add_ai_message(self, content):
+        ai_message = AIMessage(content=content)
+        self.conversation.append(ai_message)
+
+    def get_conversation(self):
+        return self.conversation
+
+    def clear_conversation(self):
+        self.conversation = []
+
+    def __str__(self):
+        return "\n".join([str(message) for message in self.conversation])
+
+
+
+class Vision:
+    def __init__(self):
+        self.chat = Chat()
+        self.chat_openai = ChatOpenAI(temperature=0, model="gpt-4")
+        self.output = ""
+        # Load the visual Foundations models
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.image_captioning = ImageCaptioning(device=device)
+        self.visual_question_answering = VisualQuestionAnswering(device=device)
+        self.object_detection = ObjectDetection(device=device)
+        self.zeroshot_object_detection = ZeroShotObjectDetection(device=device)
+        self.ocr = Ocr()
+        self.image = None
+
+    def _process_ai_response(self, response):
+        if response.startswith("@ans:"):
+            return response[5:].strip(), True
+        elif response.startswith("@ZeroShotObjectDetection:"):
+            # Convert AI response to a list of strings
+            labels = json.loads(response[25:].strip())
+
+            # Call ZeroShotObjectDetection model here
+            output = self.zeroshot_object_detection.inference(self.image, labels)
+            return output, False
+
+        elif response.startswith("@VisualQuestionAnswering:"):
+            # Convert AI response to a list of strings
+            questions = json.loads(response[23:].strip())
+
+            # Call VisualQuestionAnswering model here
+            output = ""
+            i = 1
+            for ques in questions:
+                output += f"{i}. {self.visual_question_answering.inference(self.image, ques)}\n"
+                i += 1
+            return output, False
+        else:
+            return None, False
+
+    def get_answer(self, query, image):
+        # Set image
+        self.image = image
+        # Invoke objectDetection, ocr, and imageCaptioning concurrently
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            object_detection_future = executor.submit(self.object_detection.inference, self.image)
+            image_captioning_future = executor.submit(self.image_captioning.inference, self.image)
+            ocr_future = executor.submit(self.ocr.ocr_file, self.image)
+
+            object_detection_output = object_detection_future.result()
+            image_captioning_output = image_captioning_future.result()
+            ocr_output = ocr_future.result()
+
+        # Initialize chat by adding system role and user's first message
+        self.chat.add_system_message("system_role", maxVqQues=3, query=query)
+        self.chat.add_human_message("user_first_message",
+                                    ObjectDetectionOutput=object_detection_output,
+                                    ImageCaptioningOutput=image_captioning_output,
+                                    OcrOutput=ocr_output)
+
+        # Get AI response and process it
+        ai_response = self.chat_openai(self.chat.get_conversation())
+        self.chat.add_ai_message(ai_response.content)
+        self.output, is_final = self._process_ai_response(ai_response.content)
+
+        if not is_final:
+            # Add user's 2nd message and get AI response
+            self.chat.add_human_message("user_second_message", IntermdiateOutput=self.output)
+            ai_response = self.chat_openai(self.chat.get_conversation())
+            self.chat.add_ai_message(ai_response.content)
+            self.output, is_final = self._process_ai_response(ai_response.content)
+
+            if not is_final:
+                # Add user's 3rd message and get AI response
+                self.chat.add_human_message("user_third_message", IntemediateOutput=self.output)
+                ai_response = self.chat_openai(self.chat.get_conversation())
+                self.chat.add_ai_message(ai_response.content)
+                self.output, _ = self._process_ai_response(ai_response.content)
+
+        # Clear the chat and return the final answer
+        self.chat.clear_conversation()
+        return self.output

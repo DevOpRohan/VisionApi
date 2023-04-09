@@ -5,11 +5,15 @@ import torch
 import concurrent.futures
 import json
 import numpy as np
+import os
+import ast
 
 from langchain.chat_models import ChatOpenAI
 from fastapi import HTTPException
 from transformers import BlipProcessor, BlipForConditionalGeneration, BlipForQuestionAnswering, pipeline
 from config import OCR_API_KEY
+
+os.environ['OPENAI_API_TOKEN'] = OCR_API_KEY
 
 
 class Language:
@@ -170,8 +174,6 @@ class ObjectDetection:
         return outputs
 
 
-
-
 class ZeroShotObjectDetection:
     def __init__(self, device):
         if 'cuda' in device:
@@ -294,7 +296,7 @@ class PromptManager:
     def format_template(self, template_name, **kwargs):
         template = self.templates.get(template_name)
         if template:
-            return template.format_prompt(**kwargs).to_messages()
+            return template.prompt.format_prompt(**kwargs).to_messages()
         else:
             raise ValueError(f"Template '{template_name}' not found in the PromptManager.")
 
@@ -306,6 +308,8 @@ class Chat:
 
     def add_system_message(self, template_name, **kwargs):
         messages = self.prompt_manager.format_template(template_name, **kwargs)
+        # After adding system message, the prompt is
+        print(messages)
         self.conversation.extend(messages)
 
     def add_human_message(self, template_name, **kwargs):
@@ -326,19 +330,28 @@ class Chat:
         return "\n".join([str(message) for message in self.conversation])
 
 
-
 class Vision:
     def __init__(self):
+        # Initialize the chat
+        print("Initializing chat")
         self.chat = Chat()
+
+        # Initialize the GPT-4 model
         self.chat_openai = ChatOpenAI(temperature=0, model="gpt-4")
         self.output = ""
         # Load the visual Foundations models
         device = "cuda" if torch.cuda.is_available() else "cpu"
+        print("Loading models on device:", device)
         self.image_captioning = ImageCaptioning(device=device)
+        print("Image captioning model loaded")
         self.visual_question_answering = VisualQuestionAnswering(device=device)
+        print("Visual question answering model loaded")
         self.object_detection = ObjectDetection(device=device)
+        print("Object detection model loaded")
         self.zeroshot_object_detection = ZeroShotObjectDetection(device=device)
+        print("Zero shot object detection model loaded")
         self.ocr = Ocr()
+        print("Models loaded")
         self.image = None
 
     def _process_ai_response(self, response):
@@ -353,18 +366,25 @@ class Vision:
             return output, False
 
         elif response.startswith("@VisualQuestionAnswering:"):
-            # Convert AI response to a list of strings
-            questions = json.loads(response[23:].strip())
+            # Print the AI response for debugging purposes
+            print("AI response:", response[25:].strip())
+
+            try:
+                questions = ast.literal_eval(response[25:].strip())
+            except (ValueError, SyntaxError):
+                print("Invalid format in AI response:", response[25:].strip())
+                questions = []
 
             # Call VisualQuestionAnswering model here
             output = ""
-            i = 1
-            for ques in questions:
-                output += f"{i}. {self.visual_question_answering.inference(self.image, ques)}\n"
-                i += 1
-            return output, False
+            for i, question in enumerate(questions, start=1):
+                answer = self.visual_question_answering.inference(f"{self.image},{question}")
+                output += f"{i}. {answer}\n"
+                print(output)
+
+            return output, False  # Return the combined output for all the questions and False instead of None
         else:
-            return None, False
+            return "", False  # Return an empty string and False instead of None
 
     def get_answer(self, query, image):
         # Set image
@@ -408,3 +428,14 @@ class Vision:
         # Clear the chat and return the final answer
         self.chat.clear_conversation()
         return self.output
+
+
+print("hello")
+Vis = Vision()
+print("hi")
+
+ans = Vis.get_answer(
+    "If there is book, what's written on that also check whether there is a person or not also tell me the colour of table and book?",
+    "3.png")
+
+print(ans)

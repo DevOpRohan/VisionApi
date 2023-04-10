@@ -6,7 +6,7 @@ from fastapi.exceptions import HTTPException
 from pydantic import BaseModel
 
 import todo_model
-from visual_services import *
+from visual_services import Vision, download_image, save_and_process_image
 from todo_model import get_user_id_by_ip, create_user_with_ip
 from db_service import handle_database_interaction
 from config import OPENAI_API_KEY
@@ -15,13 +15,8 @@ from config import OPENAI_API_KEY
 # Create the 'image' folder if it doesn't exist
 os.makedirs('image', exist_ok=True)
 
-# Load the visual Foundations models
-device = "cuda" if torch.cuda.is_available() else "cpu"
-image_captioning = ImageCaptioning(device=device)
-visual_question_answering = VisualQuestionAnswering(device=device)
-object_detection = ObjectDetection(device=device)
-zeroshot_object_detection = ZeroShotObjectDetection(device=device)
-ocr = Ocr()
+# Visual Services
+vision  = Vision()
 
 
 app = FastAPI()
@@ -33,7 +28,7 @@ VISION_PROMPT = "====\nYou are \"Vision,\" a multidimensional (able to understan
 chat_history_general = {}
 chat_history_db_service = {}
 ip_user_id_cache = {}  # Memory cache for IP-User ID mapping
-
+user_id_vq_cache = {}  # Memory cache for User ID-Visual Question mapping
 
 @app.on_event("startup")
 async def startup_event():
@@ -110,6 +105,16 @@ async def vision(request: Request, q: str, userId: str = Depends(get_user_id)):
         todo_message = ai_response[6:].strip()
         db_response = await handle_database_interaction(userId, todo_message, chat_history_db_service[ip])
         return db_response
+
+    elif ai_response.startswith("@vq:"):
+        history.pop(0)
+        question = ai_response[4:].strip()
+        # Set the question in id-question map user_id_vq_cache = {}
+        user_id_vq_cache[userId] = question
+
+        # Return the @vq to take the image
+        return "@vq"
+
     else:
         history.append({"role": "assistant", "content": ai_response})
 
@@ -124,11 +129,17 @@ async def vision(request: Request, q: str, userId: str = Depends(get_user_id)):
 async def upload_image(request: Request, imageLink: str, userId: str = Depends(get_user_id)):
     image_url = imageLink
     user_id = userId
+
+    # Get the question from the user_id_vq_cache
+    ques = user_id_vq_cache[userId]
     image_path = download_image(image_url, user_id)
     processed_image_path = save_and_process_image(image_path, user_id)
-    # ocr_result = ocr.ocr_file(processed_image_path)
-    ocr_result = ocr.ocr_url(image_url)
-    return {"status": "success", "message": "Image uploaded and processed successfully", "ocrResult": ocr_result}
+
+    # Use Vision to get the answer of complex queries
+    answer = vision.get_answer(ques, processed_image_path)
+
+    # Return the answer
+    return answer
 
 if __name__ == "__main__":
     import uvicorn

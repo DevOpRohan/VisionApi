@@ -226,7 +226,6 @@ def download_image(image_url, user_id):
     else:
         raise HTTPException(status_code=400, detail="Image download failed")
 
-
 # == PROMPT MANAGER ==
 
 from langchain.prompts import (
@@ -430,12 +429,12 @@ class Vision:
         return self.output
 
 
-print("hello")
-Vis = Vision()
-print("hi")
-
-ans = Vis.get_answer(
-    "If there is book, what's written on that also check whether there is a person or not also tell me the colour of table and book?",
-    "3.png")
-
-print(ans)
+# print("hello")
+# Vis = Vision()
+# print("hi")
+#
+# ans = Vis.get_answer(
+#     "If there is book, what's written on that also check whether there is a person or not also tell me the colour of table and book?",
+#     "3.png")
+#
+# print(ans)

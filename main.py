@@ -6,7 +6,8 @@ import os
 from fastapi import FastAPI, Request, Depends, UploadFile, File
 from fastapi.exceptions import HTTPException
 from pydantic import BaseModel
-
+from fastapi.middleware.cors import CORSMiddleware
+from datetime import datetime
 import todo_model
 from visual_services import Vision, download_image, save_and_process_image
 from todo_model import get_user_id_by_ip, create_user_with_ip
@@ -18,10 +19,17 @@ from config import OPENAI_API_KEY
 os.makedirs('image', exist_ok=True)
 
 # Visual Services
-vision  = Vision()
+vis  = Vision()
 
 
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=['*'],
+    allow_credentials=True,
+    allow_methods=['*'],
+    allow_headers=['*'],
+)
 
 openai.api_key = OPENAI_API_KEY
 
@@ -31,6 +39,7 @@ chat_history_general = {}
 chat_history_db_service = {}
 ip_user_id_cache = {}  # Memory cache for IP-User ID mapping
 user_id_vq_cache = {}  # Memory cache for User ID-Visual Question mapping
+
 
 @app.on_event("startup")
 async def startup_event():
@@ -126,19 +135,19 @@ async def vision(request: Request, q: str, userId: str = Depends(get_user_id)):
 
         return ai_response
 
-
 @app.get("/uploadImageLink")
 async def upload_image(request: Request, imageLink: str, userId: str = Depends(get_user_id)):
-    image_url = imageLink
-    user_id = userId
+    image_url = imageLink.strip('"')
+    current_time = datetime.now()
+    time_stamp = current_time.strftime("%Y%m%d%H%M%S%f")
 
     # Get the question from the user_id_vq_cache
     ques = user_id_vq_cache[userId]
-    image_path = download_image(image_url, user_id)
-    processed_image_path = save_and_process_image(image_path, user_id)
+    image_path = download_image(image_url, time_stamp)
+    processed_image_path = save_and_process_image(image_path, time_stamp)
 
     # Use Vision to get the answer of complex queries
-    answer = vision.get_answer(ques, processed_image_path)
+    answer = vis.get_answer(ques, processed_image_path)
 
     # Return the answer
     return answer
@@ -157,13 +166,15 @@ async def image_upload(request: Request, image: UploadFile = File(...), userId: 
     processed_image_path = save_and_process_image(temp_image_path, user_id)
 
     # Use Vision to get the answer of complex queries
-    answer = vision.get_answer(ques, processed_image_path)
+    answer = vis.get_answer(ques, processed_image_path)
 
     # Remove the temporary image file
     os.remove(temp_image_path)
 
     # Return the answer
     return answer
+
+
 
 # WEB API
 @app.get("/visionweb")
@@ -223,7 +234,26 @@ async def vision(request: Request, q: str, userId: str = Depends(get_user_id)):
 
         return ai_response
 
+from fastapi.responses import JSONResponse
+from fastapi.encoders import jsonable_encoder
 
+@app.exception_handler(Exception)
+async def generic_exception_handler(request: Request, exc: Exception):
+    content = jsonable_encoder({"detail": str(exc)})
+    return JSONResponse(content=content, status_code=400)
+
+
+""" Google Colab Host"""
+# if __name__ == "__main__":
+#     import nest_asyncio
+#     from pyngrok import ngrok
+#     import uvicorn
+#     ngrok_tunnel = ngrok.connect(8000)
+#     print('Public URL:', ngrok_tunnel.public_url)
+#     nest_asyncio.apply()
+#     uvicorn.run(app, port=8000)
+
+""" Local Host"""
 # if __name__ == "__main__":
 #     import uvicorn
 #     uvicorn.run(app, host="0.0.0.0", port=8000)

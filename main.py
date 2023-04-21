@@ -1,26 +1,27 @@
 import shutil
-
+import json
 import openai
 import torch
 import os
+from pydantic import BaseModel
+from datetime import datetime
+
 from fastapi import FastAPI, Request, Depends, UploadFile, File
 from fastapi.exceptions import HTTPException
-from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
-from datetime import datetime
+from fastapi.responses import JSONResponse
+
 import todo_model
 from visual_services import Vision, download_image, save_and_process_image
 from todo_model import get_user_id_by_ip, create_user_with_ip
 from db_service import handle_database_interaction
 from config import OPENAI_API_KEY
 
-
 # Create the 'image' folder if it doesn't exist
 os.makedirs('image', exist_ok=True)
 
 # Visual Services
-vis  = Vision()
-
+vis = Vision()
 
 app = FastAPI()
 app.add_middleware(
@@ -89,7 +90,7 @@ async def vision(request: Request, q: str, userId: str = Depends(get_user_id)):
     if chat_history_db_service[ip]["active"]:
         print("DB Service is already Active")
         db_response = await handle_database_interaction(userId, q, chat_history_db_service[ip])
-        return db_response
+        return JSONResponse(content={"message": db_response})
 
     history = chat_history_general[ip]["history"]
     history.append({"role": "user", "content": q})
@@ -115,25 +116,23 @@ async def vision(request: Request, q: str, userId: str = Depends(get_user_id)):
         history.pop(0)
         todo_message = ai_response[6:].strip()
         db_response = await handle_database_interaction(userId, todo_message, chat_history_db_service[ip])
-        return db_response
+        return JSONResponse(content={"message": db_response})
 
     elif ai_response.startswith("@vq:"):
         history.pop(0)
         question = ai_response[4:].strip()
-        # Set the question in id-question map user_id_vq_cache = {}
         user_id_vq_cache[userId] = question
-
-        # Return the @vq to take the image
-        return "@vq"
+        return JSONResponse(content={"message": "@vq"})
 
     else:
         history.append({"role": "assistant", "content": ai_response})
 
-        if len(history) > 10:
+        if len(history) > 1:
             history.pop(0)
             history.pop(0)
 
-        return ai_response
+        return JSONResponse(content={"message": ai_response})
+
 
 @app.get("/uploadImageLink")
 async def upload_image(request: Request, imageLink: str, userId: str = Depends(get_user_id)):
@@ -150,7 +149,8 @@ async def upload_image(request: Request, imageLink: str, userId: str = Depends(g
     answer = vis.get_answer(ques, processed_image_path)
 
     # Return the answer
-    return answer
+    return JSONResponse(content={"message": answer})
+
 
 @app.post("/uploadImage")
 async def image_upload(request: Request, image: UploadFile = File(...), userId: str = Depends(get_user_id)):
@@ -163,17 +163,20 @@ async def image_upload(request: Request, image: UploadFile = File(...), userId: 
 
     # Get the question from the user_id_vq_cache
     ques = user_id_vq_cache[userId]
-    processed_image_path = save_and_process_image(temp_image_path, user_id)
 
+    # processed_image_path = save_and_process_image(temp_image_path, user_id)
+
+    # Assuming vis is an instance of your Vision class
     # Use Vision to get the answer of complex queries
-    answer = vis.get_answer(ques, processed_image_path)
+    answer = vis.get_answer(ques, temp_image_path)
 
     # Remove the temporary image file
     os.remove(temp_image_path)
 
-    # Return the answer
-    return answer
+    print(answer)
 
+    # Return the answer in JSON format
+    return JSONResponse(content={"message": answer})
 
 
 # WEB API
@@ -188,7 +191,7 @@ async def vision(request: Request, q: str, userId: str = Depends(get_user_id)):
     if chat_history_db_service[ip]["active"]:
         print("DB Service is already Active")
         db_response = await handle_database_interaction(userId, q, chat_history_db_service[ip])
-        return db_response
+        return JSONResponse(content={"message": db_response})
 
     history = chat_history_general[ip]["history"]
     history.append({"role": "user", "content": q})
@@ -214,28 +217,27 @@ async def vision(request: Request, q: str, userId: str = Depends(get_user_id)):
         history.pop(0)
         todo_message = ai_response[6:].strip()
         db_response = await handle_database_interaction(userId, todo_message, chat_history_db_service[ip])
-        return db_response
+        return JSONResponse(content={"message": db_response})
 
     elif ai_response.startswith("@vq:"):
         history.pop(0)
         question = ai_response[4:].strip()
-        # Set the question in id-question map user_id_vq_cache = {}
         user_id_vq_cache[userId] = question
-
-        # Return the @vq to take the image
-        return "@vq"
+        return JSONResponse(content={"message": "@vq"})
 
     else:
         history.append({"role": "assistant", "content": ai_response})
 
-        if len(history) > 10:
+        if len(history) > 1:
             history.pop(0)
             history.pop(0)
 
-        return ai_response
+        return JSONResponse(content={"message": ai_response})
+
 
 from fastapi.responses import JSONResponse
 from fastapi.encoders import jsonable_encoder
+
 
 @app.exception_handler(Exception)
 async def generic_exception_handler(request: Request, exc: Exception):
@@ -243,11 +245,12 @@ async def generic_exception_handler(request: Request, exc: Exception):
     return JSONResponse(content=content, status_code=400)
 
 
-""" Google Colab Host"""
+""" To Run in Collab"""
 # if __name__ == "__main__":
 #     import nest_asyncio
 #     from pyngrok import ngrok
 #     import uvicorn
+#
 #     ngrok_tunnel = ngrok.connect(8000)
 #     print('Public URL:', ngrok_tunnel.public_url)
 #     nest_asyncio.apply()

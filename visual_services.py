@@ -10,7 +10,7 @@ import ast
 
 from langchain.chat_models import ChatOpenAI
 from fastapi import HTTPException
-from transformers import BlipProcessor, BlipForConditionalGeneration, BlipForQuestionAnswering, pipeline
+from transformers import BlipProcessor, BlipForConditionalGeneration, BlipForQuestionAnswering
 from config import OCR_API_KEY
 
 os.environ['OPENAI_API_TOKEN'] = OCR_API_KEY
@@ -137,6 +137,7 @@ class ImageCaptioning:
         return captions
 
 
+
 # Visual Question Answering
 class VisualQuestionAnswering:
     def __init__(self, device):
@@ -156,41 +157,65 @@ class VisualQuestionAnswering:
         return answer
 
 
-""" Object Detection """
 
+""" Object Detection """
+# !pip install timm
+from transformers import DetrImageProcessor, DetrForObjectDetection
+import torch
+import timm
 
 class ObjectDetection:
     def __init__(self, device):
-        if 'cuda' in device:
-            self.device = 0
-        else:
-            self.device = -1
+        self.device = device
+        self.torch_dtype = torch.float16 if 'cuda' in device else torch.float32
+        self.processor = DetrImageProcessor.from_pretrained("facebook/detr-resnet-50")
+        self.model = DetrForObjectDetection.from_pretrained("facebook/detr-resnet-50", torch_dtype=self.torch_dtype).to(self.device)
+        self.model.config.max_new_tokens = 1024  # Set max_new_tokens
 
-        self.model = pipeline(model="facebook/detr-resnet-50", device=self.device)
+    def inference(self, image_path):
+        img = Image.open(image_path)
+        inputs = self.processor(images=img, return_tensors="pt").to(self.device, self.torch_dtype)
+        outputs = self.model(**inputs)
+        results = self.processor.post_process_object_detection(outputs, threshold=0.7)[0]
+        formatted_results = []
+        for score, label, box in zip(results["scores"], results["labels"], results["boxes"]):
+            box = [round(i, 2) for i in box.tolist()]
+            formatted_results.append({
+                "label": self.model.config.id2label[label.item()],
+                "score": round(score.item(), 3),
+                "box": {'xmin': box[0], 'ymin': box[1], 'xmax': box[2], 'ymax': box[3]}
+            })
+        return formatted_results
 
-    def inference(self, image_path, threshold=0.7):
-        image = Image.open(image_path)
-        outputs = self.model(image, threshold=threshold)
-        return outputs
-
-
+"""ZeroShotObjectDetection"""
+import torch
+from transformers import OwlViTProcessor, OwlViTForObjectDetection
 class ZeroShotObjectDetection:
     def __init__(self, device):
-        if 'cuda' in device:
-            self.device = 0
-        else:
-            self.device = -1
-
-        self.model = pipeline(model="google/owlvit-base-patch32", task="zero-shot-object-detection", device=self.device)
+        self.device = device
+        self.torch_dtype = torch.float16 if 'cuda' in device else torch.float32
+        self.processor = OwlViTProcessor.from_pretrained("google/owlvit-base-patch32")
+        self.model = OwlViTForObjectDetection.from_pretrained("google/owlvit-base-patch32", torch_dtype=self.torch_dtype).to(self.device)
+        self.model.config.max_new_tokens = 1024  # Set max_new_tokens
 
     def inference(self, image_path, candidate_labels):
-        image = Image.open(image_path)
-        outputs = self.model(image, candidate_labels=candidate_labels)
-        return outputs
+        img = Image.open(image_path)
+        inputs = self.processor(text=candidate_labels, images=img, return_tensors="pt").to(self.device)
+        outputs = self.model(**inputs)
+        results = self.processor.post_process_object_detection(outputs, threshold=0.1)[0]
+
+        formatted_results = []
+        for label, score, box in zip(results["labels"], results["scores"], results["boxes"]):
+            box = [round(i, 2) for i in box.tolist()]
+            formatted_results.append({
+                "label": candidate_labels[label.item()],
+                "score": round(score.item(), 3),
+                "box": {'xmin': box[0], 'ymin': box[1], 'xmax': box[2], 'ymax': box[3]}
+            })
+        return formatted_results
 
 
-""" Images Utility """
-
+""" ImageProcessing Utility/Tools """
 
 # Save and process image
 def save_and_process_image(image_path, user_id):

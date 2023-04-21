@@ -246,15 +246,15 @@ async def generic_exception_handler(request: Request, exc: Exception):
 
 
 """ To Run in Collab"""
-# if __name__ == "__main__":
-#     import nest_asyncio
-#     from pyngrok import ngrok
-#     import uvicorn
-#
-#     ngrok_tunnel = ngrok.connect(8000)
-#     print('Public URL:', ngrok_tunnel.public_url)
-#     nest_asyncio.apply()
-#     uvicorn.run(app, port=8000)
+if __name__ == "__main__":
+    import nest_asyncio
+    from pyngrok import ngrok
+    import uvicorn
+
+    ngrok_tunnel = ngrok.connect(8000)
+    print('Public URL:', ngrok_tunnel.public_url)
+    nest_asyncio.apply()
+    uvicorn.run(app, port=8000)
 
 """ Local Host"""
 # if __name__ == "__main__":

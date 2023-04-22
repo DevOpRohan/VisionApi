@@ -137,7 +137,6 @@ class ImageCaptioning:
         return captions
 
 
-
 # Visual Question Answering
 class VisualQuestionAnswering:
     def __init__(self, device):
@@ -157,19 +156,20 @@ class VisualQuestionAnswering:
         return answer
 
 
-
 """ Object Detection """
 # !pip install timm
 from transformers import DetrImageProcessor, DetrForObjectDetection
 import torch
 import timm
 
+
 class ObjectDetection:
     def __init__(self, device):
         self.device = device
         self.torch_dtype = torch.float16 if 'cuda' in device else torch.float32
         self.processor = DetrImageProcessor.from_pretrained("facebook/detr-resnet-50")
-        self.model = DetrForObjectDetection.from_pretrained("facebook/detr-resnet-50", torch_dtype=self.torch_dtype).to(self.device)
+        self.model = DetrForObjectDetection.from_pretrained("facebook/detr-resnet-50", torch_dtype=self.torch_dtype).to(
+            self.device)
         self.model.config.max_new_tokens = 1024  # Set max_new_tokens
 
     def inference(self, image_path):
@@ -187,15 +187,19 @@ class ObjectDetection:
             })
         return formatted_results
 
+
 """ZeroShotObjectDetection"""
 import torch
 from transformers import OwlViTProcessor, OwlViTForObjectDetection
+
+
 class ZeroShotObjectDetection:
     def __init__(self, device):
         self.device = device
         self.torch_dtype = torch.float16 if 'cuda' in device else torch.float32
         self.processor = OwlViTProcessor.from_pretrained("google/owlvit-base-patch32")
-        self.model = OwlViTForObjectDetection.from_pretrained("google/owlvit-base-patch32", torch_dtype=self.torch_dtype).to(self.device)
+        self.model = OwlViTForObjectDetection.from_pretrained("google/owlvit-base-patch32",
+                                                              torch_dtype=self.torch_dtype).to(self.device)
         self.model.config.max_new_tokens = 1024  # Set max_new_tokens
 
     def inference(self, image_path, candidate_labels):
@@ -217,6 +221,7 @@ class ZeroShotObjectDetection:
 
 """ ImageProcessing Utility/Tools """
 
+
 # Save and process image
 def save_and_process_image(image_path, user_id):
     """
@@ -230,6 +235,8 @@ def save_and_process_image(image_path, user_id):
     os.makedirs('image', exist_ok=True)
     img = Image.open(image_path)
     width, height = img.size
+
+    # Commented this Line, because image already preprocessed by android device
     ratio = min(512 / width, 512 / height)
     width_new, height_new = (round(width * ratio), round(height * ratio))
     width_new = int(np.round(width_new / 64.0)) * 64
@@ -250,6 +257,7 @@ def download_image(image_url, user_id):
         return image_path
     else:
         raise HTTPException(status_code=400, detail="Image download failed")
+
 
 # == PROMPT MANAGER ==
 
@@ -275,6 +283,7 @@ class PromptManager:
         # System role template
         system_role_template = SystemMessagePromptTemplate.from_template(
             "You are vision an AI system to give the response of the below visual query using various tools.\n"
+            "To use the tool use Eng language in proper format"
             "Query:\n```\n{query}\n```\n"
             "You have access to the following tools.\n"
             "[\n\n**ZeroShotObjectDetection**\n"
@@ -285,7 +294,7 @@ class PromptManager:
             "Format Example\n```\n@VisualQuestionAnswering:[<ques1>,<ques2>,<ques3>]\n```\n\n"
             "Rules\nAtmax no. of ques should be {maxVqQues}\n"
             "Question shouldn't be  about getting text/labels.\n]\n\n"
-            "Follow the user's instruction carefully and  always respond in proper format."
+            "Follow the user's instruction carefully and always respond in proper format and alway give final answer in coversational way and in query's language"
         )
         templates["system_role"] = system_role_template
 
@@ -295,8 +304,8 @@ class PromptManager:
             "ObjectDetection:\n```\n{ObjectDetectionOutput}\n```\n"
             "ImageCaptioning:\n```\n{ImageCaptioningOutput}\n```\n"
             "TextDetected:\n```\n{OcrOutput}\n```\n\n"
-            "Now, if information provided by me is enough, then respond with a answer in format\n"
-            "@ans:<answer>\nelse,tell me use which one of the two tool, and wait for my response in the specified format.\n"
+            "Now, if information provided by me is enough, then respond with a final answer in format\n"
+            "@ans:<answer>\nelse,tell me to use one of the two tool, and wait for my response in the specified format.\n"
             "@<toolKeyword>:<input>"
         )
         templates["user_first_message"] = user_first_message_template
@@ -304,7 +313,7 @@ class PromptManager:
         # User's 2nd message template
         user_second_message_template = HumanMessagePromptTemplate.from_template(
             "Output: {IntermdiateOutput}\n"
-            "Now,if you want to use  VisualQuestionAnswering, the respond me in proper format else conclude the answer."
+            "Now,if you want to use VisualQuestionAnswering, then respond me in proper format else conclude the final answer."
         )
         templates["user_second_message"] = user_second_message_template
 
@@ -363,19 +372,27 @@ class Vision:
         # Initialize the GPT-4 model
         self.chat_openai = ChatOpenAI(temperature=0, model="gpt-4")
         self.output = ""
-        # Load the visual Foundations models
+
         device = "cuda" if torch.cuda.is_available() else "cpu"
         print("Loading models on device:", device)
+
+        # Load the visual Foundations models
         self.image_captioning = ImageCaptioning(device=device)
         print("Image captioning model loaded")
+
         self.visual_question_answering = VisualQuestionAnswering(device=device)
         print("Visual question answering model loaded")
+
         self.object_detection = ObjectDetection(device=device)
         print("Object detection model loaded")
+
         self.zeroshot_object_detection = ZeroShotObjectDetection(device=device)
         print("Zero shot object detection model loaded")
+
         self.ocr = Ocr()
-        print("Models loaded")
+        print("OCR is Ready")
+
+        print("All the Visual Foundation Models loaded")
         self.image = None
 
     def _process_ai_response(self, response):
@@ -452,7 +469,6 @@ class Vision:
         # Clear the chat and return the final answer
         self.chat.clear_conversation()
         return self.output
-
 
 # print("hello")
 # Vis = Vision()

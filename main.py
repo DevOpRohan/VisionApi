@@ -234,7 +234,7 @@ async def vision(request: Request, q: str, userId: str = Depends(get_user_id)):
     else:
         history.append({"role": "assistant", "content": ai_response})
 
-        if len(history) > 1:
+        if len(history) > 10:
             history.pop(0)
             history.pop(0)
 

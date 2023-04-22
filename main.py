@@ -3,6 +3,8 @@ import json
 import openai
 import torch
 import os
+
+from pyngrok import ngrok
 from pydantic import BaseModel
 from datetime import datetime
 
@@ -45,6 +47,9 @@ user_id_vq_cache = {}  # Memory cache for User ID-Visual Question mapping
 @app.on_event("startup")
 async def startup_event():
     await todo_model.create_tables()
+    # Start the ngrok tunnel
+    ngrok_tunnel = ngrok.connect(7860)
+    print('Public URL:', ngrok_tunnel.public_url)
 
 
 @app.on_event("startup")
@@ -164,14 +169,15 @@ async def image_upload(request: Request, image: UploadFile = File(...), userId: 
     # Get the question from the user_id_vq_cache
     ques = user_id_vq_cache[userId]
 
-    # processed_image_path = save_and_process_image(temp_image_path, user_id)
+    processed_image_path = save_and_process_image(temp_image_path, user_id)
 
     # Assuming vis is an instance of your Vision class
     # Use Vision to get the answer of complex queries
-    answer = vis.get_answer(ques, temp_image_path)
+    answer = vis.get_answer(ques, processed_image_path)
 
     # Remove the temporary image file
     os.remove(temp_image_path)
+    os.remove(processed_image_path)
 
     print(answer)
 
@@ -245,18 +251,7 @@ async def generic_exception_handler(request: Request, exc: Exception):
     return JSONResponse(content=content, status_code=400)
 
 
-""" To Run in Collab"""
-if __name__ == "__main__":
-    import nest_asyncio
-    from pyngrok import ngrok
-    import uvicorn
-
-    ngrok_tunnel = ngrok.connect(8000)
-    print('Public URL:', ngrok_tunnel.public_url)
-    nest_asyncio.apply()
-    uvicorn.run(app, port=8000)
-
-""" Local Host"""
+""" Local Host/Google Collab"""
 # if __name__ == "__main__":
 #     import uvicorn
 #     uvicorn.run(app, host="0.0.0.0", port=8000)

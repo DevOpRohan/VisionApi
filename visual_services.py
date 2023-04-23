@@ -176,7 +176,7 @@ class ObjectDetection:
         img = Image.open(image_path)
         inputs = self.processor(images=img, return_tensors="pt").to(self.device, self.torch_dtype)
         outputs = self.model(**inputs)
-        results = self.processor.post_process_object_detection(outputs, threshold=0.7)[0]
+        results = self.processor.post_process_object_detection(outputs, threshold=0.9)[0]
         formatted_results = []
         for score, label, box in zip(results["scores"], results["labels"], results["boxes"]):
             box = [round(i, 2) for i in box.tolist()]
@@ -236,13 +236,14 @@ def save_and_process_image(image_path, user_id):
     img = Image.open(image_path)
     width, height = img.size
 
-    # Commented this Line, because image already preprocessed by android device
-    ratio = min(512 / width, 512 / height)
-    width_new, height_new = (round(width * ratio), round(height * ratio))
-    width_new = int(np.round(width_new / 64.0)) * 64
-    height_new = int(np.round(height_new / 64.0)) * 64
-    img = img.resize((width_new, height_new))
-    img = img.convert('RGB')
+    # Commented these Line, because image already preprocessed by android device
+    # ratio = min(512 / width, 512 / height)
+    # width_new, height_new = (round(width * ratio), round(height * ratio))
+    # width_new = int(np.round(width_new / 64.0)) * 64
+    # height_new = int(np.round(height_new / 64.0)) * 64
+    # img = img.resize((width_new, height_new)
+    # img = img.convert('RGB')
+
     img.save(image_filename, "PNG")
     return image_filename
 

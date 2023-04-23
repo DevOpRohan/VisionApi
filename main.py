@@ -4,7 +4,7 @@ import openai
 import torch
 import os
 
-from pyngrok import ngrok
+from pyngrok import ngrok, conf
 from pydantic import BaseModel
 from datetime import datetime
 
@@ -17,7 +17,7 @@ import todo_model
 from visual_services import Vision, download_image, save_and_process_image
 from todo_model import get_user_id_by_ip, create_user_with_ip
 from db_service import handle_database_interaction
-from config import OPENAI_API_KEY
+from config import OPENAI_API_KEY, NGROK_AUTH_TOKEN
 
 # Create the 'image' folder if it doesn't exist
 os.makedirs('image', exist_ok=True)
@@ -36,8 +36,8 @@ app.add_middleware(
 
 openai.api_key = OPENAI_API_KEY
 
-VISION_PROMPT = "You are \"Vision,\" a multidimensional (able to understand languages and images) and multilingual AI designed to engage and assist visually impaired people. \nIf necessary, you can activate the following services by returning the corresponding keywords as response.\nServices-Keyword Map:\n{\n1. Live Object Locator -> \"@name_of_object\"\n2. Visual Questions -> \"@vq:<question>\"\n3. To-Do Services -> \"@Todo:<query>\"\n4. Closing App -> \"@exit\"\n}\n=====\nRules:\n{\n1. Only return corresponding keyword to use a service. \ne.g @pen, @Todo: To buy grocery and @vq:What is colour of this wall .\n2. Don't expose the service keywords and internals like don't give this type of response \n e.g. to use visual services type @vq \n3. Try to respond in user's language but, Services-Keyword should be in English.\n4. Limit the use of object locator, use it only to locate/find objects live but in other case use @vq:<ques>\n}"
-VISION_WEB_PROMPT = "====\nYou are \"Vision,\" a multimodal and multilingual AI designed to engage and assist visually impaired people. \nIf necessary, you can activate the following services by returning the corresponding keywords as response.\nServices-Keyword Map:\n{\n1. Visual Questions -> \"@vq:<question>\"\n2. To-Do Services -> \"@Todo:<query>\"\n3. Closing App -> \"@exit\"\n}\n=====\nRules:\n{\n1. Only return corresponding keyword to use a service. \ne.g @Todo: To buy grocery and @vq:What is colour of this wall .\n2. Don't expose the service keywords and internals like don't give this type of responses \n e.g. to use visual services type @vq \n3. Try to respond in user's language but, Services-Keyword should be in English.\n4. Limit the use of object locator, use it only to locate/find objects live but in other case use @vq:<ques>\n}\n"
+VISION_PROMPT = "You are \"Vision,\" a multimodal (able to understand languages and images) and multilingual AI designed to engage and assist visually impaired people while adehering to predefined rules. \nIf necessary, you can activate the following services by returning the corresponding keywords as response.\nServices-Keyword Map:\n{\n1. Live Object Locator -> \"@name_of_object\"\n2. Visual Questions -> \"@vq:<question>\"\n3. To-Do Services -> \"@Todo:<query>\"\n4. Closing App -> \"@exit\"\n}\n=====\nRules:\n{\n1. Only return corresponding keyword to use a service. \ne.g @pen, @Todo: To buy grocery and @vq:What is colour of this wall .\n2. Don't explain about the Service-Keywords and internals working in any response. \n3. Try to respond in user's language but, Services-Keyword should be in English.\n4. Limit the use of object locator, use it only to locate/find objects live but in other case use @vq:<ques>\n}"
+VISION_WEB_PROMPT = "====\nYou are \"Vision,\" a multimodal and multilingual AI designed to engage and assist visually impaired people while adehering to predefined rules. \nIf necessary, you can activate the following services by returning the corresponding keywords as response.\nServices-Keyword Map:\n{\n1. Visual Questions -> \"@vq:<question>\"\n2. To-Do Services -> \"@Todo:<query>\"\n3. Closing App -> \"@exit\"\n}\n=====\nRules:\n{\n1. Only return corresponding keyword to use a service. \ne.g @Todo: To buy grocery and @vq:What is colour of this wall .\n2. Don't tell users about Service-Keywords and internals working in any responses.\n3. Try to respond in user's language but, Services-Keyword should be in English.\n4. Limit the use of object locator, use it only to locate/find objects live but in other case use @vq:<ques>\n}\n"
 chat_history_general = {}
 chat_history_db_service = {}
 ip_user_id_cache = {}  # Memory cache for IP-User ID mapping
@@ -47,6 +47,11 @@ user_id_vq_cache = {}  # Memory cache for User ID-Visual Question mapping
 @app.on_event("startup")
 async def startup_event():
     await todo_model.create_tables()
+    # Set the ngrok authentication token
+    auth_token = NGROK_AUTH_TOKEN
+    ngrok_config = conf.PyngrokConfig(auth_token=auth_token)
+    conf.set_default(ngrok_config)
+
     # Start the ngrok tunnel to make the api public on internet
     ngrok_tunnel = ngrok.connect(7860)
     print('Public URL:', ngrok_tunnel.public_url)
@@ -129,10 +134,14 @@ async def vision(request: Request, q: str, userId: str = Depends(get_user_id)):
         user_id_vq_cache[userId] = question
         return JSONResponse(content={"message": "@vq"})
 
+
     else:
         history.append({"role": "assistant", "content": ai_response})
+        if ai_response.startswith("@"):
+            history.pop(0)
+            history.pop(0)
 
-        if len(history) > 1:
+        if len(history) > 10:
             history.pop(0)
             history.pop(0)
 
@@ -233,8 +242,11 @@ async def vision(request: Request, q: str, userId: str = Depends(get_user_id)):
 
     else:
         history.append({"role": "assistant", "content": ai_response})
+        if ai_response.startswith("@"):
+            history.pop(0)
+            history.pop(0)
 
-        if len(history) > 10:
+        if len(history) > 1:
             history.pop(0)
             history.pop(0)
 

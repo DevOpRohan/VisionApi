@@ -3,7 +3,7 @@
 ## Requirements
 - Python
 - GPT-4
-- At least 12GB of RAM if using CPU only. If using a GPU, at least 8GB of GPU memory and 8GB of RAM are required.
+- At least 12GB of RAM if using CPU only. If using a GPU, at least 4GB of GPU memory and 8GB of RAM are required.
 
 ## Setup
 1. Clone this repo

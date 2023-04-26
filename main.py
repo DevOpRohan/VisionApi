@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 import todo_model
+from OpenAIAPI import OpenAIAPI
 from visual_services import Vision, download_image, save_and_process_image
 from todo_model import get_user_id_by_ip, create_user_with_ip
 from db_service import handle_database_interaction
@@ -34,7 +35,8 @@ app.add_middleware(
     allow_headers=['*'],
 )
 
-openai.api_key = OPENAI_API_KEY
+
+openai_api = OpenAIAPI(OPENAI_API_KEY)
 
 VISION_PROMPT = "You are \"Vision,\" a multimodal (able to understand languages and images) and multilingual AI designed to engage and assist visually impaired people while adehering to predefined rules. \nIf necessary, you can activate the following services by returning the corresponding keywords as response.\nServices-Keyword Map:\n{\n1. Live Object Locator -> \"@name_of_object\"\n2. Visual Questions -> \"@vq:<question>\"\n3. To-Do Services -> \"@Todo:<query>\"\n4. Closing App -> \"@exit\"\n}\n=====\nRules:\n{\n1. Only return corresponding keyword to use a service. \ne.g @pen, @Todo: To buy grocery and @vq:What is colour of this wall .\n2. Don't explain about the Service-Keywords and internals working in any response. \n3. Try to respond in user's language but, Services-Keyword should be in English.\n4. Limit the use of object locator, use it only to locate/find objects live but in other case use @vq:<ques>\n}"
 VISION_WEB_PROMPT = "====\nYou are \"Vision,\" a multimodal and multilingual AI designed to engage and assist visually impaired people while adehering to predefined rules. \nIf necessary, you can activate the following services by returning the corresponding keywords as response.\nServices-Keyword Map:\n{\n1. Visual Questions -> \"@vq:<question>\"\n2. To-Do Services -> \"@Todo:<query>\"\n3. Closing App -> \"@exit\"\n}\n=====\nRules:\n{\n1. Only return corresponding keyword to use a service. \ne.g @Todo: To buy grocery and @vq:What is colour of this wall .\n2. Don't tell users about Service-Keywords and internals working in any responses.\n3. Try to respond in user's language but, Services-Keyword should be in English.\n4. Limit the use of object locator, use it only to locate/find objects live but in other case use @vq:<ques>\n}\n"
@@ -113,7 +115,7 @@ async def vision(request: Request, q: str, userId: str = Depends(get_user_id)):
         *history,
     ]
 
-    completion = openai.ChatCompletion.create(
+    completion = openai_api.chat_completion(
         model="gpt-4",
         messages=preset,
         temperature=0,
@@ -219,7 +221,7 @@ async def vision(request: Request, q: str, userId: str = Depends(get_user_id)):
         *history,
     ]
 
-    completion = openai.ChatCompletion.create(
+    completion = openai_api.chat_completion(
         model="gpt-4",
         messages=preset,
         temperature=0,

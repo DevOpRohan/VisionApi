@@ -4,6 +4,7 @@ import openai
 import torch
 import os
 
+from langchain import PromptTemplate
 from pyngrok import ngrok, conf
 from pydantic import BaseModel
 from datetime import datetime
@@ -15,10 +16,12 @@ from fastapi.responses import JSONResponse
 
 import todo_model
 from OpenAIAPI import OpenAIAPI
+from utils import parse_action_line
 from visual_services import Vision, download_image, save_and_process_image
 from todo_model import get_user_id_by_ip, create_user_with_ip
 from db_service import handle_database_interaction
 from config import OPENAI_API_KEY, NGROK_AUTH_TOKEN
+from prompt import vis_sys_prompt, init_prompt_android, init_prompt_web
 
 # Create the 'image' folder if it doesn't exist
 os.makedirs('image', exist_ok=True)
@@ -36,10 +39,13 @@ app.add_middleware(
 )
 
 
+
 openai_api = OpenAIAPI(OPENAI_API_KEY)
 
-VISION_PROMPT = "You are \"Vision,\" a multimodal (able to understand languages and images) and multilingual AI designed to engage and assist visually impaired people while adehering to predefined rules. \nIf necessary, you can activate the following services by returning the corresponding keywords as response.\nServices-Keyword Map:\n{\n1. Live Object Locator -> \"@name_of_object\"\n2. Visual Questions -> \"@vq:<question>\"\n3. To-Do Services -> \"@Todo:<query>\"\n4. Closing App -> \"@exit\"\n}\n=====\nRules:\n{\n1. Only return corresponding keyword to use a service. \ne.g @pen, @Todo: To buy grocery and @vq:What is colour of this wall .\n2. Don't explain about the Service-Keywords and internals working in any response. \n3. Try to respond in user's language but, Services-Keyword should be in English.\n4. Limit the use of object locator, use it only to locate/find objects live but in other case use @vq:<ques>\n}"
-VISION_WEB_PROMPT = "====\nYou are \"Vision,\" a multimodal and multilingual AI designed to engage and assist visually impaired people while adehering to predefined rules. \nIf necessary, you can activate the following services by returning the corresponding keywords as response.\nServices-Keyword Map:\n{\n1. Visual Questions -> \"@vq:<question>\"\n2. To-Do Services -> \"@Todo:<query>\"\n3. Closing App -> \"@exit\"\n}\n=====\nRules:\n{\n1. Only return corresponding keyword to use a service. \ne.g @Todo: To buy grocery and @vq:What is colour of this wall .\n2. Don't tell users about Service-Keywords and internals working in any responses.\n3. Try to respond in user's language but, Services-Keyword should be in English.\n4. Limit the use of object locator, use it only to locate/find objects live but in other case use @vq:<ques>\n}\n"
+
+
+
+
 chat_history_general = {}
 chat_history_db_service = {}
 ip_user_id_cache = {}  # Memory cache for IP-User ID mapping
@@ -50,13 +56,13 @@ user_id_vq_cache = {}  # Memory cache for User ID-Visual Question mapping
 async def startup_event():
     await todo_model.create_tables()
     # Set the ngrok authentication token
-    auth_token = NGROK_AUTH_TOKEN
-    ngrok_config = conf.PyngrokConfig(auth_token=auth_token)
-    conf.set_default(ngrok_config)
-
-    # Start the ngrok tunnel to make the api public on internet
-    ngrok_tunnel = ngrok.connect(7860)
-    print('Public URL:', ngrok_tunnel.public_url)
+    # auth_token = NGROK_AUTH_TOKEN
+    # ngrok_config = conf.PyngrokConfig(auth_token=auth_token)
+    # conf.set_default(ngrok_config)
+    #
+    # # Start the ngrok tunnel to make the api public on internet
+    # ngrok_tunnel = ngrok.connect(7860)
+    # print('Public URL:', ngrok_tunnel.public_url)
 
 
 @app.on_event("startup")
@@ -93,6 +99,7 @@ async def get_user_id(request: Request):
 
 @app.get("/vision")
 async def vision(request: Request, q: str, userId: str = Depends(get_user_id)):
+    print(q)
     ip = request.client.host
 
     if ip not in chat_history_general:
@@ -105,17 +112,19 @@ async def vision(request: Request, q: str, userId: str = Depends(get_user_id)):
         return JSONResponse(content={"message": db_response})
 
     history = chat_history_general[ip]["history"]
-    history.append({"role": "user", "content": q})
+    temp = init_prompt_android.format(userQuery=q)
+    print(temp)
+    history.append({"role": "user", "content": temp})
 
     preset = [
         {
             "role": "system",
-            "content": VISION_PROMPT,
+            "content": vis_sys_prompt,
         },
         *history,
     ]
 
-    completion = openai_api.chat_completion(
+    completion = await openai_api.chat_completion(
         model="gpt-4",
         messages=preset,
         temperature=0,
@@ -123,31 +132,28 @@ async def vision(request: Request, q: str, userId: str = Depends(get_user_id)):
     )
 
     ai_response = completion.choices[0].message["content"]
+    print(ai_response)
+    action = parse_action_line(ai_response)
+    print(action)
+    history.pop(0)
 
-    if ai_response.startswith("@Todo:") or chat_history_db_service[ip]["active"]:
-        history.pop(0)
-        todo_message = ai_response[6:].strip()
-        db_response = await handle_database_interaction(userId, todo_message, chat_history_db_service[ip])
+    if action.startswith("@answer:"):
+        return JSONResponse(content={"message": action[8:].strip()})
+
+    elif action.startswith("@error:"):
+        return JSONResponse(content={"message": action[7:].strip()})
+
+    elif action.startswith("@todo:") or chat_history_db_service[ip]["active"]:
+        db_response = await handle_database_interaction(userId, q, chat_history_db_service[ip])
         return JSONResponse(content={"message": db_response})
 
-    elif ai_response.startswith("@vq:"):
-        history.pop(0)
-        question = ai_response[4:].strip()
-        user_id_vq_cache[userId] = question
+    elif action.startswith("@vq:"):
+        user_id_vq_cache[userId] = q
         return JSONResponse(content={"message": "@vq"})
 
-
     else:
-        history.append({"role": "assistant", "content": ai_response})
-        if ai_response.startswith("@"):
-            history.pop(0)
-            history.pop(0)
-
-        if len(history) > 10:
-            history.pop(0)
-            history.pop(0)
-
         return JSONResponse(content={"message": ai_response})
+
 
 
 @app.get("/uploadImageLink")
@@ -198,7 +204,8 @@ async def image_upload(request: Request, image: UploadFile = File(...), userId: 
 
 # WEB API
 @app.get("/visionweb")
-async def vision(request: Request, q: str, userId: str = Depends(get_user_id)):
+async def visionweb(request: Request, q: str, userId: str = Depends(get_user_id)):
+    print(q)
     ip = request.client.host
 
     if ip not in chat_history_general:
@@ -211,17 +218,19 @@ async def vision(request: Request, q: str, userId: str = Depends(get_user_id)):
         return JSONResponse(content={"message": db_response})
 
     history = chat_history_general[ip]["history"]
-    history.append({"role": "user", "content": q})
+    temp = init_prompt_web.format(userQuery=q)
+    print(temp)
+    history.append({"role": "user", "content": temp})
 
     preset = [
         {
             "role": "system",
-            "content": VISION_WEB_PROMPT,
+            "content": vis_sys_prompt,
         },
         *history,
     ]
 
-    completion = openai_api.chat_completion(
+    completion = await openai_api.chat_completion(
         model="gpt-4",
         messages=preset,
         temperature=0,
@@ -229,30 +238,28 @@ async def vision(request: Request, q: str, userId: str = Depends(get_user_id)):
     )
 
     ai_response = completion.choices[0].message["content"]
+    print(ai_response)
+    action = parse_action_line(ai_response)
+    print(action)
+    history.pop(0)
 
-    if ai_response.startswith("@Todo:") or chat_history_db_service[ip]["active"]:
-        history.pop(0)
-        todo_message = ai_response[6:].strip()
-        db_response = await handle_database_interaction(userId, todo_message, chat_history_db_service[ip])
+    if action.startswith("@answer:"):
+        return JSONResponse(content={"message": action[8:].strip()})
+
+    elif action.startswith("@error:"):
+        return JSONResponse(content={"message": action[7:].strip()})
+
+    elif action.startswith("@todo:") or chat_history_db_service[ip]["active"]:
+        db_response = await handle_database_interaction(userId, q, chat_history_db_service[ip])
         return JSONResponse(content={"message": db_response})
 
-    elif ai_response.startswith("@vq:"):
-        history.pop(0)
-        question = ai_response[4:].strip()
-        user_id_vq_cache[userId] = question
+    elif action.startswith("@vq:"):
+        user_id_vq_cache[userId] = q
         return JSONResponse(content={"message": "@vq"})
 
     else:
-        history.append({"role": "assistant", "content": ai_response})
-        if ai_response.startswith("@"):
-            history.pop(0)
-            history.pop(0)
-
-        if len(history) > 1:
-            history.pop(0)
-            history.pop(0)
-
         return JSONResponse(content={"message": ai_response})
+
 
 
 from fastapi.responses import JSONResponse

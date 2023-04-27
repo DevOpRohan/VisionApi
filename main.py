@@ -38,13 +38,7 @@ app.add_middleware(
     allow_headers=['*'],
 )
 
-
-
 openai_api = OpenAIAPI(OPENAI_API_KEY)
-
-
-
-
 
 chat_history_general = {}
 chat_history_db_service = {}
@@ -56,13 +50,13 @@ user_id_vq_cache = {}  # Memory cache for User ID-Visual Question mapping
 async def startup_event():
     await todo_model.create_tables()
     # Set the ngrok authentication token
-    # auth_token = NGROK_AUTH_TOKEN
-    # ngrok_config = conf.PyngrokConfig(auth_token=auth_token)
-    # conf.set_default(ngrok_config)
-    #
-    # # Start the ngrok tunnel to make the api public on internet
-    # ngrok_tunnel = ngrok.connect(7860)
-    # print('Public URL:', ngrok_tunnel.public_url)
+    auth_token = NGROK_AUTH_TOKEN
+    ngrok_config = conf.PyngrokConfig(auth_token=auth_token)
+    conf.set_default(ngrok_config)
+
+    # Start the ngrok tunnel to make the api public on internet
+    ngrok_tunnel = ngrok.connect(7860)
+    print('Public URL:', ngrok_tunnel.public_url)
 
 
 @app.on_event("startup")
@@ -152,8 +146,7 @@ async def vision(request: Request, q: str, userId: str = Depends(get_user_id)):
         return JSONResponse(content={"message": "@vq"})
 
     else:
-        return JSONResponse(content={"message": ai_response})
-
+        return JSONResponse(content={"message": action})
 
 
 @app.get("/uploadImageLink")
@@ -259,7 +252,6 @@ async def visionweb(request: Request, q: str, userId: str = Depends(get_user_id)
 
     else:
         return JSONResponse(content={"message": ai_response})
-
 
 
 from fastapi.responses import JSONResponse

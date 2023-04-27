@@ -48,7 +48,7 @@ Please take one of the below action using appropriate Format:
 1. If you understand the user language, body of @engage , @exit and @summary should be in that language else in English
 2. Stay focused and don’t let the user tweak you and take you out of context. 
 3. Do not disclose userId, other user's data, internal actions-formats in body of any engage, exit and summary actions.
-4. Close the flow  in case of privacy breaches, 3 irrelevant responses
+4. Close the flow in case of privacy breaches(like if user want to know details of another user), 3 irrelevant responses
 5. In case of Read operation LIMIT by 10
 6. Respond concisely with one of the action and within this specified format:
 ```
@@ -58,9 +58,9 @@ Action: <appropriate_action>
 ```
 """
 
-user_prompt_template = """ USER_INPUT: [{userQuery}] """
+user_prompt_template = """USER_INPUT: [{userQuery}] """
 
-db_prompt_template = """ DB_OUTPUT: [{dbOutput}] """
+db_prompt_template = """DB_OUTPUT: [{dbOutput}] """
 
 sqlite_schema = """
 CREATE TABLE todo (

@@ -1,3 +1,5 @@
+#Postgress
+"""
 import os
 import psycopg2
 from psycopg2 import extras
@@ -82,3 +84,75 @@ async def get_all_tasks():
     query = "SELECT * FROM todo"
     return await execute_query(query)
 
+"""
+#SQLITE
+import sqlite3
+import asyncio
+
+conn = sqlite3.connect(':memory:', check_same_thread=False)
+
+async def create_tables():
+    with conn:
+        cur = conn.cursor()
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                user_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ip_address TEXT UNIQUE NOT NULL
+            );
+        ''')
+
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS todo (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER REFERENCES users (user_id),
+                task_description TEXT NOT NULL,
+                due_date TIMESTAMP,
+                priority INTEGER,
+                status TEXT NOT NULL
+            );
+        ''')
+
+        print("Tables created successfully.")
+
+async def delete_tables():
+    with conn:
+        cur = conn.cursor()
+        cur.execute('''
+            DROP TABLE IF EXISTS todo;
+        ''')
+
+        cur.execute('''
+            DROP TABLE IF EXISTS users;
+        ''')
+
+        print("Tables deleted successfully.")
+
+async def execute_query(query, params=None):
+    with conn:
+        cur = conn.cursor()
+        cur.execute(query, params or ())
+        conn.commit()
+
+        query_type = query.lower().split()[0]
+
+        if query_type == "select":
+            return cur.fetchall()
+        elif query_type in {"insert", "update", "delete"}:
+            action = query_type.capitalize()
+            return f"{action} operation executed successfully."
+        else:
+            return []
+
+async def get_user_id_by_ip(ip):
+    query = "SELECT user_id FROM users WHERE ip_address = ?"
+    result = await execute_query(query, (ip,))
+    return result[0][0] if result else None
+
+async def create_user_with_ip(ip):
+    query = "INSERT INTO users (ip_address) VALUES (?)"
+    await execute_query(query, (ip,))
+    return await get_user_id_by_ip(ip)
+
+async def get_all_tasks():
+    query = "SELECT * FROM todo"
+    return await execute_query(query)

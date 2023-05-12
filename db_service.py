@@ -191,7 +191,7 @@ async def handle_database_interaction(user_id, user_query, chats):
         current_date = datetime.now().strftime("%A, %d %B %Y")
 
         # Make a string of the user_id and current_date , to be used in the TODO_PROMPT
-        temp = sys_prompt.format(SQL=postgres_schema, userId=user_id, currDate=current_date)
+        temp = sys_prompt.format(SQL=sqlite_schema, userId=user_id, currDate=current_date)
         chats["history"].append({"role": "system", "content": temp})
         temp = init_prompt.format(userQuery=user_query)
         chats["history"].append({"role": "user", "content": temp})

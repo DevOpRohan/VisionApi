@@ -419,11 +419,13 @@ class Vision:
 
             # Call VisualQuestionAnswering model here
             output = ""
-            for i, question in enumerate(questions, start=1):
-                answer = self.visual_question_answering.inference(f"{self.image},{question}")
-                output += f"{i}. {answer}\n"
-                print(output)
-
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                futures = [executor.submit(self.visual_question_answering.inference, f"{self.image},{question}") for
+                           question in questions]
+                answers = [future.result() for future in futures]  # Changed this line
+                for i, answer in enumerate(answers, start=1):
+                    output += f"{i}. {answer}\n"
+                    print(output)
             return output, False  # Return the combined output for all the questions and False instead of None
         else:
             return "", False  # Return an empty string and False instead of None

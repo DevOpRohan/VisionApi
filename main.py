@@ -4,7 +4,7 @@ import openai
 import torch
 import os
 
-from langchain import PromptTemplate
+# from langchain import PromptTemplate
 from pyngrok import ngrok, conf
 from pydantic import BaseModel
 from datetime import datetime
@@ -165,6 +165,12 @@ async def upload_image(request: Request, imageLink: str, userId: str = Depends(g
 
     # Return the answer
     return JSONResponse(content={"message": answer})
+
+
+from fastapi import FastAPI, File, UploadFile, Depends, Request
+from fastapi.responses import JSONResponse
+import shutil
+import os
 
 
 @app.post("/uploadImage")
